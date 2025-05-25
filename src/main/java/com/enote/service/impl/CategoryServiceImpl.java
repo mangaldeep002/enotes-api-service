@@ -1,5 +1,6 @@
 package com.enote.service.impl;
 
+import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 
@@ -11,8 +12,11 @@ import org.springframework.util.ObjectUtils;
 import com.enote.dto.CategoryDto;
 import com.enote.dto.CategoryResponse;
 import com.enote.entity.Category;
+import com.enote.exception.NameAlreadyExistException;
+import com.enote.exception.ResourceNotFoundException;
 import com.enote.repositry.CategoryRepositry;
 import com.enote.service.CategoryService;
+import com.enote.util.Validation;
 
 @Service
 public class CategoryServiceImpl implements CategoryService {
@@ -21,18 +25,33 @@ public class CategoryServiceImpl implements CategoryService {
 	private CategoryRepositry categoryRepo;
 	@Autowired
 	private ModelMapper mapper;
+	@Autowired
+	private Validation validation;
 	
 	@Override
-	public Boolean saveCategory(CategoryDto categoryDto) {
+	public Boolean saveCategory(CategoryDto categoryDto) throws NameAlreadyExistException {
 		// Category category = new Category();
 		
+		validation.CategoryValidation(categoryDto);
+		
 		Category category = mapper.map(categoryDto, Category.class);
+		
+		boolean nameExist = categoryRepo.existsByNameIgnoreCase(category.getName());
+		if (nameExist) {
+			throw new NameAlreadyExistException("Category name already exist");
+		}
+		
+		if (ObjectUtils.isEmpty(category.getId())) {
+			category.setIsDeleted(false);
+			// category.setCreatedBy(1);
+		} else {
+			updateCategory(category);
+		}
 		
 		// category.setName(categoryDto.getName());
 		// category.setDescription(categoryDto.getDescription());
 		// category.setIsActive(categoryDto.getIsActive());
-		category.setIsDeleted(false);
-		category.setCreatedBy(1);
+		
 		Category savedCategory = categoryRepo.save(category);
 		
 		if (ObjectUtils.isEmpty(savedCategory)) {
@@ -40,6 +59,21 @@ public class CategoryServiceImpl implements CategoryService {
 		}
 		
 		return true;
+	}
+
+	private void updateCategory(Category category) {
+		
+		Optional<Category> findById = categoryRepo.findById(category.getId());
+		
+		if(findById.isPresent()) {
+			Category existingCategory = findById.get();
+			category.setCreatedBy(existingCategory.getCreatedBy());
+			category.setCreatedOn(existingCategory.getCreatedOn());
+			category.setIsDeleted(existingCategory.getIsDeleted());
+			// category.setUpdatedBy(1);
+			// category.setUpdatedOn(new Date());
+		}
+		
 	}
 
 	@Override
@@ -59,11 +93,11 @@ public class CategoryServiceImpl implements CategoryService {
 	}
 
 	@Override
-	public CategoryDto getCategoryById(Integer id) {
-		Optional<Category> findByCategory = categoryRepo.findByIdAndIsDeletedFalse(id);
+	public CategoryDto getCategoryById(Integer id) throws ResourceNotFoundException {
+		Category category = categoryRepo.findByIdAndIsDeletedFalse(id).orElseThrow(() ->
+				new ResourceNotFoundException("Category not found with id: "+ id));
 		
-		if(findByCategory.isPresent()) {
-			Category category = findByCategory.get();
+		if(!ObjectUtils.isEmpty(category)) {
 			return mapper.map(category, CategoryDto.class);
 		}
 		return null;
